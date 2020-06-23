@@ -1,0 +1,5 @@
+conllu
+torch
+gensim
+tqdm
+lxml
