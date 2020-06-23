@@ -37,3 +37,31 @@ def compare(gold_iob, model_iob):
   return TP, FP, FN
 
 
+def test_sent(model, sent, featurizer, criterion):
+    labels = read_iob(sent, device)      
+    corr = 0
+    IOBs = "".join([IOB[ind.item()] for ind in labels])
+    with torch.no_grad():
+        model_input = model.prepare_input(sent, featurizer)
+        output = model(model_input)
+        iob_out = out_to_iob(output)
+        for sys,gold in zip(iob_out, IOBs):
+            if sys == gold:
+                corr +=1
+
+    loss = criterion(output.float(), labels)
+
+    return corr, len(sent), iob_out, float(loss)
+
+
+def analyse_output(sent):
+  ncorr, ntotal, iob_out, loss = test_sent(model, sent, featurizer, criterion)
+  fixed_iob = fix(iob_out)
+  iob_ann = "".join([tok["misc"]["iob"] for tok in sent])
+  for i, tok in enumerate(s):
+    if not iob_ann[i] == fixed_iob[i]:
+      is_correct = "✗"
+    else:
+      is_correct = ""
+    print("i: {0:<4} form: {1:<30} gold: {2:<4} sys: {3:<4}   {4:<4}".format(i, tok["form"], iob_ann[i], fixed_iob[i], is_correct))
+

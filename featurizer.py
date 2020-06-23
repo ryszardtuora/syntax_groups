@@ -3,6 +3,7 @@ from data_handler import *
 
 class W2V_Featurizer():
     def __init__(self, emb, device):
+        print("W2V_Featurizer")
         self.emb = emb
         self.input_dim = 300
         self.device = device
@@ -15,6 +16,7 @@ class W2V_Featurizer():
 
 class W2V_POS_Featurizer():
     def __init__(self, emb, device):
+        print("W2V_POS_Featurizer")
         self.emb = emb
         self.input_dim = 337
         self.device = device
@@ -29,6 +31,7 @@ class W2V_POS_Featurizer():
 
 class W2V_POS_DEPREL_Featurizer():
     def __init__(self, emb, device):
+        print("W2V_POS_DEPREL_Featurizer")
         self.emb = emb
         self.input_dim = 369
         self.device = device

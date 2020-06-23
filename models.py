@@ -6,6 +6,7 @@ from data_handler import sent_to_tree, read_iob
 
 class DenseNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, device):
+        print("Dense Net")
         super(DenseNet, self).__init__()
         self.hidden_size = hidden_size 
         self.dense = nn.Linear(input_size, hidden_size)
@@ -27,11 +28,16 @@ class DenseNet(nn.Module):
 
 class TreeLSTMParser(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, device):
+        print("TreeLSTM + LSTM")
         super(TreeLSTMParser, self).__init__()
         self.tree = TreeLSTM(input_size, hidden_size)
         self.lstm = nn.LSTM(input_size, hidden_size)
         self.hidden_size = hidden_size
-        self.classifier = nn.Linear(hidden_size * 2, output_size)
+
+        self.dense = nn.Linear(hidden_size * 2, 30)
+        self.tanh = nn.Tanh()
+        self.classifier = nn.Linear(30, output_size)
+
         self.softmax = nn.LogSoftmax(dim=0)
         self.device = device
 
@@ -58,7 +64,10 @@ class TreeLSTMParser(nn.Module):
         tree_hidden, tree_cell = self.tree(tree_features, node_order, adjacencies, edge_order)
         lstm_out = lstm_hidden.reshape(len(lstm_hidden), -1)
         classifier_in = torch.cat([tree_hidden, lstm_out], 1)
-        classifier_out = self.classifier(classifier_in)
+
+        dense_out = self.tanh(self.dense(classifier_in))
+        classifier_out = self.classifier(dense_out)
+        
         out = self.softmax(classifier_out)
         return out
 
@@ -66,11 +75,19 @@ class TreeLSTMParser(nn.Module):
 
 class TreeBiLSTMParser(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, device):
+        print("TreeLSTM + BiLSTM")
         super(TreeBiLSTMParser, self).__init__()
         self.tree = TreeLSTM(input_size, hidden_size)
         self.lstm = nn.LSTM(input_size, hidden_size, bidirectional=True)
         self.hidden_size = hidden_size
-        self.classifier = nn.Linear(hidden_size * 3, output_size)
+
+
+        self.dense = nn.Linear(hidden_size * 3, 30)
+        self.tanh = nn.Tanh()
+        self.classifier = nn.Linear(30, output_size)
+        self.dropout = nn.Dropout()
+
+#       self.classifier = nn.Linear(hidden_size * 3, output_size)
         self.softmax = nn.LogSoftmax(dim=0)
         self.device = device
 
@@ -95,9 +112,14 @@ class TreeBiLSTMParser(nn.Module):
         
         lstm_hidden, lstm_cell = self.lstm(lstm_in, clean_hidden)
         tree_hidden, tree_cell = self.tree(tree_features, node_order, adjacencies, edge_order)
-        lstm_out = lstm_hidden.reshape(len(lstm_hidden), -1)
+        lstm_out = self.dropout(lstm_hidden.reshape(len(lstm_hidden), -1))
         classifier_in = torch.cat([tree_hidden, lstm_out], 1)
-        classifier_out = self.classifier(classifier_in)
+
+        dense_out = self.dropout(self.tanh(self.dense(classifier_in)))        
+        classifier_out = self.classifier(dense_out)
+
+
+        #classifier_out = self.classifier(classifier_in)
         out = self.softmax(classifier_out)
         return out
 
@@ -106,6 +128,7 @@ class TreeBiLSTMParser(nn.Module):
 
 class LSTMParser(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, device):
+        print("LSTM")
         super(LSTMParser, self).__init__()
         self.hidden_size = hidden_size 
         self.lstm = nn.LSTM(input_size, hidden_size)
@@ -138,12 +161,18 @@ class LSTMParser(nn.Module):
 
 class BiLSTMParser(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, device):
+        print("BiLSTM")
         super(BiLSTMParser, self).__init__()
         self.hidden_size = hidden_size 
         self.lstm = nn.LSTM(input_size, hidden_size, bidirectional=True)
-        self.hidden = nn.Linear(hidden_size * 2, output_size)
+        #self.hidden = nn.Linear(hidden_size * 2, output_size)
         self.softmax = nn.LogSoftmax(dim=0)
         self.device = device
+
+        self.dense = nn.Linear(hidden_size * 2, 30)
+        self.tanh = nn.Tanh()
+        self.classifier = nn.Linear(30, output_size)
+        self.dropout = nn.Dropout()
 
     def prepare_input(self, sent, featurizer):
         features = featurizer(sent)
@@ -162,7 +191,11 @@ class BiLSTMParser(nn.Module):
         clean_hidden = self.init_hidden()
         lstm_out, _ = self.lstm(input, clean_hidden)
         reshaped = lstm_out.reshape(len(input), -1)
-        tagger_out = self.hidden(reshaped)
-        out = self.softmax(tagger_out) # dim=1?
+
+        classifier_in = self.dropout(reshaped)
+        dense_out = self.dropout(self.tanh(self.dense(reshaped)))        
+        classifier_out = self.classifier(dense_out)
+
+        out = self.softmax(classifier_out) # dim=1?
         return out
 

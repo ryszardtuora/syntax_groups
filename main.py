@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from models import DenseNet, BiLSTMParser, LSTMParser, TreeLSTMParser, TreeBiLSTMParser
 from data_handler import *
-from evaluation import fix, compare
+from evaluation import fix, compare, test_sent, analyse_output
 from featurizer import W2V_Featurizer, W2V_POS_Featurizer, W2V_POS_DEPREL_Featurizer
 
 
@@ -18,7 +18,7 @@ hidden_dim = 100
 tree_size = 100
 lstm_size = 100
 embeddings_path = "cut.vec"
-epochs = 10
+epochs = 15
 num_classes = 3
 TRAIN_PATH = "phrases_train.conllu"
 TEST_PATH = "phrases_test.conllu"
@@ -34,8 +34,6 @@ def out_to_one_hot(indices):
   return y
 
 
-
-
 def train_sent(model, sent, featurizer, criterion, optimizer):
     model_input = model.prepare_input(sent, featurizer)
     labels = read_iob(sent, device)
@@ -48,22 +46,6 @@ def train_sent(model, sent, featurizer, criterion, optimizer):
     
     optimizer.step()
     return float(loss)
-
-
-def test_sent(model, sent, featurizer):
-    labels = read_iob(sent, device)      
-    corr = 0
-    IOBs = "".join([IOB[ind.item()] for ind in labels])
-    with torch.no_grad():
-        model_input = model.prepare_input(sent, featurizer)
-        output = model(model_input)
-        iob_out = out_to_iob(output)
-        for sys,gold in zip(iob_out, IOBs):
-            if sys == gold:
-                corr +=1
-
-    return corr, len(sent), iob_out
-
 
 def print_example(model, sent, featurizer):
     model_input = model.prepare_input(sent, featurizer)
@@ -90,13 +72,15 @@ def main():
     featurizer = W2V_POS_DEPREL_Featurizer(emb, device)
     input_dim = featurizer.input_dim
     criterion = nn.CrossEntropyLoss()
-    model = TreeBiLSTMParser(input_dim, 100, 3, device)
+    model = BiLSTMParser(input_dim, 100, 3, device)
     optimizer = torch.optim.Adam(model.parameters())
 
-    train_sentences = load_conllu(TRAIN_PATH)#[:20000]
+    train_sentences = load_conllu(TRAIN_PATH)
     dev_sentences = load_conllu(DEV_PATH)
+    test_sentences = load_conllu(TEST_PATH)
 
 
+    top_f1 = -float("inf")
     for e in range(epochs):
         model.train()
         total_loss = 0
@@ -105,7 +89,7 @@ def main():
         for i in tqdm(train_indices):
             s = train_sentences[i]
             total_loss += train_sent(model, s, featurizer, criterion, optimizer)
-        print(total_loss)
+        print("Train loss: ", total_loss)
 
         model.eval()
         corr = 0
@@ -115,8 +99,10 @@ def main():
 
         TP, FP, FN, SENTS = (0, 0, 0, 0)
         no_sents = 0
+        dev_loss = 0
         for s in tqdm(dev_sentences):
-            ncorr, ntotal, iob_out = test_sent(model, s, featurizer)
+            ncorr, ntotal, iob_out, loss = test_sent(model, s, featurizer, criterion)
+            dev_loss += loss
             corr += ncorr
             total += ntotal
             fixed_iob = fix(iob_out)
@@ -135,8 +121,47 @@ def main():
         print("recall: ", recall)
         print("f1: ", f1)
         print("sents_acc: ", sent_acc)
+        print("Dev loss: ", dev_loss)
         print(corr/total)
+        if f1 > top_f1:
+            top_f1 = f1
+            torch.save(model.state_dict(), type(model).__name__ + ".model")
 
-main()
+    # test set evaluation
+    state_dict = torch.load(type(model).__name__ + ".model")
+    model.load_state_dict(state_dict)
+    model.eval()
+    corr = 0
+    total = 0
+    TP, FP, FN, SENTS = (0, 0, 0, 0)
+    no_sents = 0
+    for s in tqdm(test_sentences):
+        ncorr, ntotal, iob_out, loss = test_sent(model, s, featurizer, criterion)
+        corr += ncorr
+        total += ntotal
+        fixed_iob = fix(iob_out)
+        iob_ann = "".join([tok["misc"]["iob"] for tok in s])
+        comparison = compare(iob_ann, fixed_iob)
+        TP += comparison[0]
+        FP += comparison[1]
+        FN += comparison[2]
+        SENTS += int(fixed_iob == iob_ann)
+        no_sents += 1
+    precision = TP / (TP + FP)
+    recall = TP / (TP + FN)
+    f1 = 2 * (precision * recall) / (precision + recall)
+    sent_acc = SENTS / no_sents
+    print("\n\n TEST SET\n\n")
+    print("precision: ", precision)
+    print("recall: ", recall)
+    print("f1: ", f1)
+    print("sents_acc: ", sent_acc)
+    print(corr/total)
+
+
+
+#main()
+
+
 
 
